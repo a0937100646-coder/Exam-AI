@@ -3,9 +3,10 @@ import random
 import json
 import os
 import re
+from io import BytesIO
 
 # 🚀 全域系統版本號
-APP_VERSION = "v2.1.4 (Build 20260727 - Exam Guide Link)"
+APP_VERSION = "v2.1.5 (Build 20260803 - Indonesian TTS Integration)"
 
 # ==========================================
 # 🛡️ 防腐層：保留指定的原始結構與函數
@@ -16,9 +17,6 @@ SENTENCES = []
 def init_quiz(): 
     pass
 
-def play_audio(): 
-    pass
-
 def show_learning_mode(): 
     pass
 
@@ -27,6 +25,27 @@ def show_quiz_mode():
 
 def show_debug_info(): 
     pass
+
+# ==========================================
+# 🔊 印尼語發音引擎 (模擬阿美語發音)
+# ==========================================
+def play_indonesian_tts(text):
+    """使用印尼語 TTS 引擎朗讀阿美語，利用南島語系的發音相似性"""
+    try:
+        from gtts import gTTS
+        # 將括號內的中文或提示濾除，避免印尼語引擎亂唸中文
+        clean_text = re.sub(r'\(.*?\)', '', text)
+        clean_text = re.sub(r'（.*?）', '', clean_text)
+        
+        tts = gTTS(text=clean_text, lang='id')
+        fp = BytesIO()
+        tts.write_to_fp(fp)
+        fp.seek(0)
+        st.audio(fp, format='audio/mp3', autoplay=True)
+    except ImportError:
+        st.error("請在終端機執行 `pip install gTTS` 以啟用發音功能。")
+    except Exception as e:
+        st.error(f"發音產生失敗：{e}")
 
 # 原始聽力題庫 (15題標準數據庫，完全保留)
 QUIZ_DATA = [
@@ -90,25 +109,22 @@ def load_question_bank():
     if not file_loaded:
         return db
 
-    # 使用緩衝區將跨行的題目合併為單一字串
     current_section = None
     current_question = []
 
     def save_question():
         if current_section and current_question:
             q_text = " ".join(current_question).strip()
-            if re.match(r'^\d+[\.、]', q_text):
+            if re.match(r'^\d+[\.\、]', q_text):
                 db[current_section].append(q_text)
             current_question.clear()
 
     for line in target_content.split("\n"):
         line = line.strip()
-        # 遇到空行代表題目結束，存入題庫
         if not line:
             save_question()
             continue
             
-        # 判斷是否為題型切換標題
         if "一、選擇題（聽音選詞）" in line: save_question(); current_section = "聽音選詞"
         elif "二、選擇題（對話理解）" in line: save_question(); current_section = "對話理解"
         elif "三、段落朗讀" in line: save_question(); current_section = "段落朗讀"
@@ -119,30 +135,26 @@ def load_question_bank():
         elif "八、句子聽寫" in line: save_question(); current_section = "句子聽寫"
         elif "九、問答" in line: save_question(); current_section = "問答"
         
-        # 開頭為數字代表新題目的開始
-        elif re.match(r'^\d+[\.、]', line):
+        elif re.match(r'^\d+[\.\、]', line):
             save_question()
             current_question.append(line)
-        # 屬於目前題目的後續內容（選項或答案）
         else:
             if current_question:
                 current_question.append(line)
                 
-    save_question() # 儲存最後一題
+    save_question() 
             
     return db
 
 # ==========================================
-# 🎨 終極 UI 渲染邏輯 (物理字串切割，100%保證顯示)
+# 🎨 終極 UI 渲染邏輯
 # ==========================================
 def render_mcq(line, prefix):
-    """渲染選擇題 (修復 split 回傳 list 的問題，並新增聽力題目隱藏功能)"""
     try:
         if "(A)" not in line:
             st.info(line)
             return
 
-        # 限制分割次數，並明確取值
         parts = line.split("(A)", 1)
         q_part = parts[0].strip()
         rest = "(A)" + parts[1]
@@ -163,15 +175,17 @@ def render_mcq(line, prefix):
             else:
                 ans_str = ans_ana.strip("。 ")
 
-        # 🌟 聽力測驗專屬：隱藏題目文字功能
         is_listening = "聽音選詞" in prefix or "對話理解" in prefix
         if is_listening:
             if st.toggle("👁️ 顯示題目文字", key=f"t_show_q_{prefix}"):
                 st.markdown(f"**{q_part}**")
         else:
             st.markdown(f"**{q_part}**")
+            
+        # 🎙️ 印尼發音按鈕 (針對聽力與選擇題的題目)
+        if st.button("🔊 印尼語音擎(阿美語模擬發音)", key=f"tts_q_{prefix}"):
+            play_indonesian_tts(q_part)
         
-        # 安全切割四個選項
         opts = []
         for tag in ["(A)", "(B)", "(C)", "(D)"]:
             if tag in opts_str:
@@ -199,7 +213,6 @@ def render_mcq(line, prefix):
         st.info(line) 
 
 def render_reading(line, prefix):
-    """渲染段落朗讀"""
     try:
         q_part = line
         ch_part = ""
@@ -213,6 +226,11 @@ def render_reading(line, prefix):
             ch_part = parts[1].strip(")")
         
         st.markdown(f"📖 **{q_part}**")
+        
+        # 🎙️ 印尼發音按鈕
+        if st.button("🔊 印尼語音擎(阿美語模擬發音)", key=f"tts_{prefix}"):
+            play_indonesian_tts(q_part)
+            
         if ch_part:
             if st.toggle("💡 顯示中文翻譯", key=f"t_{prefix}"):
                 st.success(ch_part)
@@ -220,7 +238,6 @@ def render_reading(line, prefix):
         st.info(line)
 
 def render_qa(line, prefix):
-    """渲染問答與情境問答"""
     try:
         text = line
         q_am = text
@@ -252,7 +269,6 @@ def render_qa(line, prefix):
         
         q_am = q_am.replace("題目：", " 題目：")
         
-        # 🌟 口說測驗-情境問答專屬：隱藏題目與提示功能
         is_situational = "情境問答" in prefix
         if is_situational:
             if st.toggle("👁️ 顯示題目與提示", key=f"t_show_q_{prefix}"):
@@ -263,6 +279,10 @@ def render_qa(line, prefix):
             st.markdown(f"🗣️ **{q_am}**")
             if ch_hint:
                 st.caption(f"中文提示：{ch_hint}")
+        
+        # 🎙️ 印尼發音按鈕
+        if st.button("🔊 印尼語音擎(模擬發音)", key=f"tts_qa_{prefix}"):
+            play_indonesian_tts(q_am)
             
         if ans or ana:
             if st.toggle("💡 顯示參考解答", key=f"t_{prefix}"):
@@ -274,7 +294,6 @@ def render_qa(line, prefix):
         st.info(line)
 
 def render_picture(line, prefix):
-    """渲染看圖表達，並支援動態載入對應題號圖片"""
     try:
         text = line
         pic = text
@@ -309,9 +328,7 @@ def render_picture(line, prefix):
             else:
                 hint = hint_part.strip()
         
-        # 🌟 動態讀取對應圖片邏輯 (假設 prefix 格式為 "看圖表達_0")
         try:
-            # 從 prefix 中解析題號 (index + 1)
             idx = int(prefix.split('_')[-1]) + 1
             img_path_jpg = f"assets/images/picture_{idx}.jpg"
             img_path_png = f"assets/images/picture_{idx}.png"
@@ -323,14 +340,13 @@ def render_picture(line, prefix):
             else:
                 st.info(f"🖼️ 圖片佔位區：若要顯示圖片，請將圖片命名為 `picture_{idx}.jpg` 或 `.png`，並放置於 `assets/images/` 資料夾中。")
         except:
-            pass # 若解析題號失敗則安全跳過
+            pass 
 
         st.markdown(f"🖼️ **圖片情境：** {pic}")
         
         if hint:
             st.caption(f"中文提示：{hint}")
             
-        # 加入輸入框作為草稿區
         st.text_area("請在此作答：", key=f"input_{prefix}", label_visibility="collapsed", placeholder="可以在此輸入您的口說草稿...")
             
         if ans or ana:
@@ -339,11 +355,14 @@ def render_picture(line, prefix):
                 if ans: msg += f"作答參考：{ans}"
                 if ana: msg += f"\n\n重點：{ana}"
                 st.success(msg)
+                
+                # 🎙️ 印尼發音按鈕 (針對作答參考的阿美語發音)
+                if ans and st.button("🔊 聆聽參考解答(印尼語音擎)", key=f"tts_pic_{prefix}"):
+                    play_indonesian_tts(ans)
     except:
         st.info(line)
 
 def render_dictation(line, prefix):
-    """渲染句子聽寫"""
     try:
         text = line
         am = text
@@ -362,10 +381,12 @@ def render_dictation(line, prefix):
             else:
                 ch = text.strip()
         
-        # 加入作答的文字輸入框，模擬真實寫作情境
         st.text_area("請在此作答：", key=f"input_{prefix}", label_visibility="collapsed", placeholder="請在此輸入您聽寫的句子...")
         
-        # 🌟 寫作測驗專屬：隱藏聽寫原文功能
+        # 🎙️ 聽寫發音按鈕
+        if st.button("🔊 播放聽寫音檔 (印尼語音擎模擬)", key=f"tts_dict_{prefix}"):
+            play_indonesian_tts(am)
+            
         if st.toggle("👁️ 顯示聽寫原文", key=f"t_show_dict_{prefix}"):
             st.markdown(f"✍️ **{am}**")
             
@@ -379,7 +400,6 @@ def render_dictation(line, prefix):
         st.info(line)
 
 def render_section(section_name, db):
-    """通用區塊渲染器"""
     questions = db.get(section_name, [])
     if not questions:
         st.warning(f"⚠️ 系統抓不到【{section_name}】的資料。")
@@ -411,45 +431,39 @@ def main():
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&display=swap');
     
-    /* 整體背景漸層：奶油白與香檳金的絲滑過渡 */
     .stApp {
         background: linear-gradient(135deg, #fdfcfb 0%, #e2d1c3 100%);
     }
     
-    /* 華麗亮面質感測驗卡片 */
     .quiz-card {
         background: linear-gradient(145deg, #ffffff 0%, #fdfbf7 100%);
         padding: 28px;
         border-radius: 16px;
-        border: 1px solid #D4AF37; /* 香檳金邊框 */
+        border: 1px solid #D4AF37;
         box-shadow: 0 10px 30px rgba(212, 175, 55, 0.15), inset 0 0 10px rgba(255, 255, 255, 0.8);
         margin-top: 20px;
         margin-bottom: 30px;
         transition: all 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
         color: #2C3E50;
-        font-family: 'Georgia', serif; /* 歐式襯線字體 */
+        font-family: 'Georgia', serif;
         backdrop-filter: blur(10px);
     }
     
-    /* 懸浮時的浮雕感與光澤放大 */
     .quiz-card:hover {
         transform: translateY(-5px);
         box-shadow: 0 15px 40px rgba(212, 175, 55, 0.25), inset 0 0 15px rgba(255, 255, 255, 0.9);
     }
     
-    /* 標題套用古典羅馬襯線字體 */
     h1, h2, h3 {
         font-family: 'Playfair Display', serif !important;
         color: #1A252C !important;
         letter-spacing: 0.5px;
     }
     
-    /* 雅緻分隔線 */
     hr { 
         border-top: 1px solid #D4AF37; 
         opacity: 0.4; 
     }
-    
     </style>
     """, unsafe_allow_html=True)
 
@@ -472,7 +486,6 @@ def main():
     db = load_question_bank()
 
     if current_tab == "📋 認證考試說明":
-        # 🌟 更新這裡：加入您提供的超連結
         st.subheader("📋 [認證考試說明](https://lokahsu.ilrdf.org.tw/web_lokahsu/Files/Guide/1_20251211_162558.pdf)")
         st.divider()
         st.info("請透過上方導覽列選擇您要進行的測驗項目。系統將自動從資料庫載入完整題庫。")
